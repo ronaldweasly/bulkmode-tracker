@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>BulkMode</title>
+    <script>
+      // Fix for sandboxed environments where 'fetch' might be read-only
+      try {
+        if (window.fetch && Object.getOwnPropertyDescriptor(window, 'fetch')?.writable === false) {
+          const descriptor = Object.getOwnPropertyDescriptor(window, 'fetch');
+          if (descriptor && descriptor.configurable) {
+            Object.defineProperty(window, 'fetch', {
+              value: window.fetch,
+              writable: true,
+              configurable: true,
+              enumerable: true
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Fetch safeguard failed:', e);
+      }
+    </script>
+    <link rel="manifest" href="/manifest.json" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
