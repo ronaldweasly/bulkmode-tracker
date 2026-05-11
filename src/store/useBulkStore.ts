@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { dbService } from '../lib/db';
+import { dbService, hasRemote, remoteService } from '../lib/db';
 import { 
   MealLog, WeightLog, WaterLog, WorkoutLog, 
   DailyShakeStatus, UserSettings 
@@ -58,14 +58,48 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
   isLoading: true,
 
   init: async () => {
-    const settings = await dbService.get('settings', 'current') || DEFAULT_SETTINGS;
-    const meals = await dbService.getAll('meals');
-    const weights = await dbService.getAll('weights');
-    const water = await dbService.getAll('water');
-    const workouts = await dbService.getAll('workouts');
-    
+    // Load local data first
+    let settings = await dbService.get('settings', 'current') || DEFAULT_SETTINGS;
+    let meals = (await dbService.getAll('meals')) || [];
+    let weights = (await dbService.getAll('weights')) || [];
+    let water = (await dbService.getAll('water')) || [];
+    let workouts = (await dbService.getAll('workouts')) || [];
     const todayStr = format(new Date(), 'yyyy-MM-dd');
-    const shakeStatus = await dbService.get('shake', todayStr);
+    let shakeStatus = await dbService.get('shake', todayStr);
+
+    // If remote (Supabase) is configured, prefer remote data and sync locally
+    if (hasRemote) {
+      try {
+        const [rSettings, rMeals, rWeights, rWater, rWorkouts, rShake] = await Promise.all([
+          remoteService.get('settings', 'current'),
+          remoteService.getAll('meals'),
+          remoteService.getAll('weights'),
+          remoteService.getAll('water'),
+          remoteService.getAll('workouts'),
+          remoteService.get('shake', todayStr),
+        ]);
+
+        if (rSettings) settings = rSettings as UserSettings;
+        if (Array.isArray(rMeals)) meals = rMeals as any[];
+        if (Array.isArray(rWeights)) weights = rWeights as any[];
+        if (Array.isArray(rWater)) water = rWater as any[];
+        if (Array.isArray(rWorkouts)) workouts = rWorkouts as any[];
+        if (rShake) shakeStatus = rShake as DailyShakeStatus;
+
+        // Sync remote -> local for offline usage
+        const savePromises: Promise<any>[] = [];
+        (meals || []).forEach((m: any) => savePromises.push(dbService.save('meals', m)));
+        (weights || []).forEach((w: any) => savePromises.push(dbService.save('weights', w)));
+        (water || []).forEach((w: any) => savePromises.push(dbService.save('water', w)));
+        (workouts || []).forEach((w: any) => savePromises.push(dbService.save('workouts', w)));
+        if (settings) savePromises.push(dbService.save('settings', { ...settings, id: 'current' }));
+        if (shakeStatus) savePromises.push(dbService.save('shake', shakeStatus));
+        await Promise.all(savePromises);
+      } catch (err) {
+        // If remote fetch fails, fall back to local without blocking init
+        console.warn('Remote sync failed, continuing with local data', err);
+      }
+    }
 
     set({ 
       settings, 
@@ -81,6 +115,9 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
   updateSettings: async (newSettings) => {
     const updated = { ...get().settings, ...newSettings };
     await dbService.save('settings', { ...updated, id: 'current' });
+    if (hasRemote) {
+      try { await remoteService.save('settings', { ...updated, id: 'current' }); } catch (e) { console.warn(e); }
+    }
     set({ settings: updated });
   },
 
@@ -91,11 +128,17 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
       timestamp: Date.now(),
     };
     await dbService.save('meals', newMeal);
+    if (hasRemote) {
+      try { await remoteService.save('meals', newMeal); } catch (e) { console.warn(e); }
+    }
     set((state) => ({ meals: [newMeal, ...state.meals] }));
   },
 
   deleteMeal: async (id) => {
     await dbService.delete('meals', id);
+    if (hasRemote) {
+      try { await remoteService.delete('meals', id); } catch (e) { console.warn(e); }
+    }
     set((state) => ({ meals: state.meals.filter(m => m.id !== id) }));
   },
 
@@ -107,9 +150,15 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
       photoUrl,
     };
     await dbService.save('weights', newWeight);
+    if (hasRemote) {
+      try { await remoteService.save('weights', newWeight); } catch (e) { console.warn(e); }
+    }
     const currentSettings = get().settings;
     const updatedSettings = { ...currentSettings, weight };
     await dbService.save('settings', { ...updatedSettings, id: 'current' });
+    if (hasRemote) {
+      try { await remoteService.save('settings', { ...updatedSettings, id: 'current' }); } catch (e) { console.warn(e); }
+    }
     set((state) => ({ weights: [newWeight, ...state.weights], settings: updatedSettings }));
   },
 
@@ -120,6 +169,9 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
       amount,
     };
     await dbService.save('water', newWater);
+    if (hasRemote) {
+      try { await remoteService.save('water', newWater); } catch (e) { console.warn(e); }
+    }
     set((state) => ({ water: [newWater, ...state.water] }));
   },
 
@@ -130,6 +182,9 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
       timestamp: Date.now(),
     };
     await dbService.save('workouts', newWorkout);
+    if (hasRemote) {
+      try { await remoteService.save('workouts', newWorkout); } catch (e) { console.warn(e); }
+    }
     set((state) => ({ workouts: [newWorkout, ...state.workouts] }));
   },
 
@@ -143,6 +198,9 @@ export const useBulkStore = create<BulkStore>((set, get) => ({
       ingredients,
     };
     await dbService.save('shake', newStatus);
+    if (hasRemote) {
+      try { await remoteService.save('shake', newStatus); } catch (e) { console.warn(e); }
+    }
     set({ shakeStatus: newStatus });
   },
 
